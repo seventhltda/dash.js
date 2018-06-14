@@ -376,13 +376,18 @@ function StreamController() {
             log(e);
             window.URL.revokeObjectURL(sourceUrl);
 
-            mediaSource.removeEventListener('sourceopen', onMediaSourceOpen);
-            mediaSource.removeEventListener('webkitsourceopen', onMediaSourceOpen);
+            try {
+                mediaSource.removeEventListener('sourceopen', onMediaSourceOpen);
+                mediaSource.removeEventListener('webkitsourceopen', onMediaSourceOpen);
 
-            //log("MediaSource set up.");
-            setMediaDuration();
+                //log("MediaSource set up.");
+                setMediaDuration();
 
-            activeStream.activate(mediaSource);
+                activeStream.activate(mediaSource);
+            } catch (e) {
+                errHandler.mediaSourceError('Error activating stream. Details: ' + e.message);
+                return;
+            }
 
             if (callback) {
                 callback();

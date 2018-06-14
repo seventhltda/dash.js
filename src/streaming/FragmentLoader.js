@@ -53,7 +53,7 @@ function FragmentLoader(config) {
         xhrs = [];
     }
 
-    function doLoad(request, remainingAttempts) {
+    function doLoad(request, remainingAttempts, countingAttempts) {
         var req = new XMLHttpRequest();
         var traces = [];
         var firstProgress = true;
@@ -139,8 +139,48 @@ function FragmentLoader(config) {
 
         req.onload = function () {
             if (req.status < 200 || req.status > 299) return;
+
+            if (req.status == 202) { // Request was accepted, retry later in X seconds, please
+                needFailureReport = false;
+
+                var retryAfterInterval = 0;
+                var retryAfterIntervals = req.getResponseHeader('Retry-After');
+                if (retryAfterIntervals) {
+                    retryAfterIntervals = retryAfterIntervals.split(', ');
+
+                    if (retryAfterIntervals.length == 1) {
+                        retryAfterInterval = parseInt(retryAfterIntervals[0]) * 1000;
+                    } else if (retryAfterIntervals.length == 2) {
+                        retryAfterInterval = Date.parse(retryAfterIntervals[0] + ', ' + retryAfterIntervals[1]).getTime() - new Date().getTime();
+                    } else if (retryAfterIntervals.length == 3) {
+                        if (!isNaN(retryAfterIntervals[2])) {
+                            retryAfterInterval = parseInt(retryAfterIntervals[2]) * 1000;
+                        } else {
+                            retryAfterInterval = parseInt(retryAfterIntervals[0]) * 1000;
+                        }
+                    }
+                }
+                if (retryAfterInterval < mediaPlayerModel.getFragmentRetryInterval()) {
+                    retryAfterInterval = mediaPlayerModel.getFragmentRetryInterval();
+                }
+
+                if (countingAttempts >= mediaPlayerModel.getFragmentRetryAttempts()) {
+                    log('Maximum attempts reached for fragment: ' + request.url);
+                    needFailureReport = true;
+                    remainingAttempts = 0;
+                    return;
+                }
+
+                log('Postponing loading fragment: ' + request.mediaType + ':' + request.type + ':' + request.startTime + ', retry in ' + retryAfterInterval + 'ms');
+                setTimeout(function () {
+                    countingAttempts++;
+                    doLoad.call(self, request, remainingAttempts, countingAttempts);
+                }, retryAfterInterval);
+                return;
+            }
+
             handleLoaded(request, true);
-            eventBus.trigger(Events.LOADING_COMPLETED, {request: request, response: req.response, sender: instance});
+            eventBus.trigger(Events.LOADING_COMPLETED, { request: request, headers: req.getAllResponseHeaders(), response: req.response, sender: instance });
         };
 
         req.onloadend = req.onerror = function () {
@@ -158,7 +198,7 @@ function FragmentLoader(config) {
                 log('Failed loading fragment: ' + request.mediaType + ':' + request.type + ':' + request.startTime + ', retry in ' + mediaPlayerModel.getFragmentRetryInterval() + 'ms' + ' attempts: ' + remainingAttempts);
                 remainingAttempts--;
                 setTimeout(function () {
-                    doLoad.call(self, request, remainingAttempts);
+                    doLoad.call(self, request, remainingAttempts, 0);
                 }, mediaPlayerModel.getFragmentRetryInterval());
             } else {
                 log('Failed loading fragment: ' + request.mediaType + ':' + request.type + ':' + request.startTime + ' no retry attempts left');
@@ -189,6 +229,7 @@ function FragmentLoader(config) {
 
         req.onload = function () {
             if (req.status < 200 || req.status > 299) return;
+            if (req.status == 202) return; // Request was accepted, but the fragment isn't ready, retry later in X seconds, please
             isSuccessful = true;
             eventBus.trigger(Events.CHECK_FOR_EXISTENCE_COMPLETED, { request: request, exists: true });
 
@@ -211,7 +252,7 @@ function FragmentLoader(config) {
                 sender: this
             });
         } else {
-            doLoad(req, mediaPlayerModel.getFragmentRetryAttempts());
+            doLoad(req, mediaPlayerModel.getFragmentRetryAttempts(), 0);
         }
     }
 

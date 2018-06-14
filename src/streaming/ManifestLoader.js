@@ -53,11 +53,9 @@ function ManifestLoader(config) {
     let requestModifier = config.requestModifier;
 
     let instance,
-        xlinkController,
-        remainingAttempts;
+        xlinkController;
 
     function setup() {
-        remainingAttempts = RETRY_ATTEMPTS;
         let xlinkLoader = XlinkLoader(context).create({
             errHandler: errHandler,
             metricsModel: metricsModel,
@@ -69,7 +67,7 @@ function ManifestLoader(config) {
         eventBus.on(Events.XLINK_READY, onXlinkReady, instance);
     }
 
-    function load (url) {
+    function doLoad(url, remainingAttempts, countingAttempts) {
         var baseUrl = parseBaseUrl(url);
 
         var request = new XMLHttpRequest();
@@ -78,6 +76,7 @@ function ManifestLoader(config) {
         var lastTraceTime = requestTime;
         var lastTraceReceivedCount = 0;
         var traces = [];
+        var self = this;
 
         var manifest,
             onload,
@@ -94,9 +93,46 @@ function ManifestLoader(config) {
                 return;
             }
 
+            if (request.status == 202) { // Request was accepted, retry later in X seconds, please
+                needFailureReport = false;
+
+                var retryAfterInterval = 0;
+                var retryAfterIntervals = request.getResponseHeader('Retry-After');
+                if (retryAfterIntervals) {
+                    retryAfterIntervals = retryAfterIntervals.split(', ');
+
+                    if (retryAfterIntervals.length == 1) {
+                        retryAfterInterval = parseInt(retryAfterIntervals[0]) * 1000;
+                    } else if (retryAfterIntervals.length == 2) {
+                        retryAfterInterval = Date.parse(retryAfterIntervals[0] + ', ' + retryAfterIntervals[1]).getTime() - new Date().getTime();
+                    } else if (retryAfterIntervals.length == 3) {
+                        if (!isNaN(retryAfterIntervals[2])) {
+                            retryAfterInterval = parseInt(retryAfterIntervals[2]) * 1000;
+                        } else {
+                            retryAfterInterval = parseInt(retryAfterIntervals[0]) * 1000;
+                        }
+                    }
+                }
+                if (retryAfterInterval < RETRY_INTERVAL) {
+                    retryAfterInterval = RETRY_INTERVAL;
+                }
+
+                if (countingAttempts >= RETRY_ATTEMPTS) {
+                    log('Maximum attempts reached for manifest: ' + url);
+                    needFailureReport = true;
+                    remainingAttempts = 0;
+                    return;
+                }
+
+                log('Postponing loading manifest: ' + url + ', retry in ' + retryAfterInterval + 'ms');
+                setTimeout(function () {
+                    countingAttempts++;
+                    doLoad.call(self, url, remainingAttempts, countingAttempts);
+                }, retryAfterInterval);
+                return;
+            }
 
             needFailureReport = false;
-            remainingAttempts = RETRY_ATTEMPTS;
 
             // Handle redirects for the MPD - as per RFC3986 Section 5.1.3
             if (request.responseURL && request.responseURL !== url) {
@@ -162,7 +198,7 @@ function ManifestLoader(config) {
                 log('Failed loading manifest: ' + url + ', retry in ' + RETRY_INTERVAL + 'ms' + ' attempts: ' + remainingAttempts);
                 remainingAttempts--;
                 setTimeout(function () {
-                    load(url);
+                    doLoad.call(self, url, remainingAttempts, countingAttempts);
                 }, RETRY_INTERVAL);
             } else {
                 log('Failed loading manifest: ' + url + ' no retry attempts left');
@@ -207,6 +243,14 @@ function ManifestLoader(config) {
             request.send();
         } catch (e) {
             request.onerror();
+        }
+    }
+
+    function load(url) {
+        if (!url) {
+            eventBus.trigger(Events.INTERNAL_MANIFEST_LOADED, {error: new Error('Failed loading manifest: url is null')});
+        } else {
+            doLoad(url, RETRY_ATTEMPTS, 0);
         }
     }
 
