@@ -39,7 +39,7 @@ import Debug from '../core/Debug.js';
 
 function ManifestLoader(config) {
 
-    const RETRY_ATTEMPTS = 3;
+    const RETRY_ATTEMPTS = 5;
     const RETRY_INTERVAL = 500;
     const PARSERERROR_ERROR_CODE = 1;
 
