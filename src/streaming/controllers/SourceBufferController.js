@@ -68,6 +68,7 @@ function SourceBufferController() {
             }
 
             buffer = mediaSource.addSourceBuffer(codec);
+            buffer.mode = 'sequence'; // Forces sequence mode because server sends always the last segment generated
 
         } catch (ex) {
             if ((mediaInfo.isText) || (codec.indexOf('codecs="stpp"') !== -1)) {
