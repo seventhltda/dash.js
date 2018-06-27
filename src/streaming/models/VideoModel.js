@@ -49,6 +49,10 @@ function VideoModel() {
         element.playbackRate = value;
     }
 
+    function getCurrentTime() {
+        return element.currentTime;
+    }
+
     //TODO Move the DVR window calculations from MediaPlayer to Here.
     function setCurrentTime(currentTime) {
         //_currentTime = currentTime;
@@ -185,6 +189,7 @@ function VideoModel() {
 
     instance = {
         initialize: initialize,
+        getCurrentTime: getCurrentTime,
         setCurrentTime: setCurrentTime,
         setStallState: setStallState,
         getElement: getElement,
