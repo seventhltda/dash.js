@@ -34,6 +34,7 @@ import MediaPlayerModel from '../../streaming/models/MediaPlayerModel.js';
 import EventBus from '../../core/EventBus.js';
 import Events from '../../core/events/Events.js';
 import FactoryMaker from '../../core/FactoryMaker.js';
+import VideoEventPolyfill from '../utils/VideoEventPolyfill.js';
 import Debug from '../../core/Debug.js';
 
 function PlaybackController() {
@@ -44,6 +45,7 @@ function PlaybackController() {
 
     let instance,
         element,
+        polyfill,
         streamController,
         timelineConverter,
         metricsModel,
@@ -76,6 +78,7 @@ function PlaybackController() {
     function initialize(StreamInfo) {
         streamInfo = StreamInfo;
         element = videoModel.getElement();
+        polyfill = new VideoEventPolyfill(element);
         addAllListeners();
         isDynamic = streamInfo.manifestInfo.isDynamic;
         liveStartTime = streamInfo.start;
@@ -198,8 +201,12 @@ function PlaybackController() {
             stopUpdatingWallclockTime();
             removeAllListeners();
         }
+        if (polyfill) {
+            polyfill.dispose();
+        }
         videoModel = null;
         streamInfo = null;
+        polyfill = null;
         element = null;
         isDynamic = null;
         setup();
@@ -473,8 +480,8 @@ function PlaybackController() {
 
     function addAllListeners() {
         element.addEventListener('canplay', onCanPlay);
-        element.addEventListener('play', onPlaybackStart);
-        element.addEventListener('playing', onPlaybackPlaying);
+        polyfill.on(VideoEventPolyfill.Events.WAITING, onPlaybackStart); //element.addEventListener('play', onPlaybackStart);
+        polyfill.on(VideoEventPolyfill.Events.PLAYING, onPlaybackPlaying); //element.addEventListener('playing', onPlaybackPlaying);
         element.addEventListener('pause', onPlaybackPaused);
         element.addEventListener('error', onPlaybackError);
         element.addEventListener('seeking', onPlaybackSeeking);
@@ -483,13 +490,13 @@ function PlaybackController() {
         element.addEventListener('progress', onPlaybackProgress);
         element.addEventListener('ratechange', onPlaybackRateChanged);
         element.addEventListener('loadedmetadata', onPlaybackMetaDataLoaded);
-        element.addEventListener('ended', onPlaybackEnded);
+        polyfill.on(VideoEventPolyfill.Events.ENDED, onPlaybackEnded); //element.addEventListener('ended', onPlaybackEnded);
     }
 
     function removeAllListeners() {
         element.removeEventListener('canplay', onCanPlay);
-        element.removeEventListener('play', onPlaybackStart);
-        element.removeEventListener('playing', onPlaybackPlaying);
+        //element.removeEventListener('play', onPlaybackStart);
+        //element.removeEventListener('playing', onPlaybackPlaying);
         element.removeEventListener('pause', onPlaybackPaused);
         element.removeEventListener('error', onPlaybackError);
         element.removeEventListener('seeking', onPlaybackSeeking);
@@ -498,7 +505,7 @@ function PlaybackController() {
         element.removeEventListener('progress', onPlaybackProgress);
         element.removeEventListener('ratechange', onPlaybackRateChanged);
         element.removeEventListener('loadedmetadata', onPlaybackMetaDataLoaded);
-        element.removeEventListener('ended', onPlaybackEnded);
+        //element.removeEventListener('ended', onPlaybackEnded);
     }
 
     instance = {

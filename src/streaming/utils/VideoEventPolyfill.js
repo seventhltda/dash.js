@@ -1,0 +1,181 @@
+/**
+ * The copyright in this software is being made available under the BSD License,
+ * included below. This software may be subject to other third party and contributor
+ * rights, including patent rights, and no such rights are granted under this license.
+ *
+ * Copyright (c) 2013, Dash Industry Forum.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification,
+ * are permitted provided that the following conditions are met:
+ *  * Redistributions of source code must retain the above copyright notice, this
+ *  list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright notice,
+ *  this list of conditions and the following disclaimer in the documentation and/or
+ *  other materials provided with the distribution.
+ *  * Neither the name of Dash Industry Forum nor the names of its
+ *  contributors may be used to endorse or promote products derived from this software
+ *  without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS AS IS AND ANY
+ *  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ *  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ *  IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+ *  INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+ *  NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ *  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ *  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ */
+
+import EventEmitter from 'events';
+
+class VideoEventPolyfill extends EventEmitter {
+
+    static get Events () {
+        return {
+            // Fired when video enters rebuffering state
+            WAITING: 'polyfillWaiting',
+            // Fired when video enters playing state
+            PLAYING: 'polyfillPlaying',
+            // Fired when video ends
+            ENDED: 'polyfillEnded'
+        };
+    }
+
+    constructor (video) {
+        super();
+
+        this.video = video;
+
+        this.IDLE = 0; // Video either not started, or already ended
+        this.BUFFERING = 1;
+        this.PLAYING = 2;
+
+        this.TOLERANCE = 0.1;
+
+        this.state = this.IDLE;
+
+        // Defining bound function, to be able to remove events listeners (bind returns a new function).
+        this.onPl = this.onPlay.bind(this);
+
+        this.onPling = this.onPlaying.bind(this);
+
+        if (this.video.paused) {
+            this.start();
+        } else {
+            this.onPlay();
+        }
+    }
+
+    start () {
+        //Putting this in a start method, since we might need to add event listener again if video ends, and we want to restart it.
+        this.video.addEventListener('play', this.onPl);
+    }
+
+    onPlay () {
+        //This listener is executed only on the first 'play' event (it auto removes just below). At the first play event we don't have any data in buffer.
+        this.state = this.BUFFERING;
+        this.emit(VideoEventPolyfill.Events.WAITING);
+
+        // Interval is set to 200ms so that currentTime has time to update between 2 calls, which is important for the onEnded check (to avoid false positives for the case where playback is stuck just before the end of the video)
+        this.tickInterval = setInterval(this.tick.bind(this), 200);
+
+        this.video.removeEventListener('play', this.onPl);
+    }
+
+    onPlaying () {
+        this.emit(VideoEventPolyfill.Events.PLAYING);
+
+        this.video.removeEventListener('playing', this.onPling);
+    }
+
+    onEnded () {
+        clearInterval(this.tickInterval);
+        this.state = this.IDLE;
+
+        this.emit(VideoEventPolyfill.Events.ENDED);
+
+        // this.video can be undefined here (if there's a post-roll with JW for example)
+        if (this.video) {
+            // Set back 'play' listener on video, in case video restarts
+            this.video.addEventListener('play', this.onPl);
+        }
+    }
+
+    getBufferLength () {
+        for (var i = 0; i < this.video.buffered.length; i++) {
+            if (this.video.buffered.start(i) <= this.video.currentTime && this.video.currentTime <= this.video.buffered.end(i)) {
+                return this.video.buffered.end(i) - this.video.currentTime;
+            }
+        }
+        return 0;
+    }
+
+    tick () {
+        if (this.isLive !== undefined && !this.isLive) {
+            if (this.video.duration && ((this.video.duration  - this.video.currentTime < 0.5 && this.video.currentTime - this.lastCurrentTime < 0.01) ||
+               // Sometimes playback gets stuck just before duration - 0.5 when JW reattaches the video after post-rolls. Video isn't paused and playbackRate is 1.
+               (this.video.duration - this.video.currentTime < 1 && this.video.currentTime - this.lastCurrentTime < 0.01 && !this.video.paused && this.video.playbackRate > 0) ||
+               // video.duration is sometimes NaN with JW after post-rolls
+               this.video.currentTime > 0 && isNaN(this.video.duration))) {
+                this.onEnded();
+                return;
+            } else {
+                this.lastCurrentTime = this.video.currentTime;
+            }
+        }
+
+        var bufferLength = this.getBufferLength();
+
+        switch (this.state) {
+            case this.BUFFERING:
+                if (bufferLength > this.TOLERANCE) {
+                    this.state = this.PLAYING;
+                    if (!this.video.paused) {
+                        this.emit(VideoEventPolyfill.Events.PLAYING);
+                    } else {
+                        // If video is paused, we don't want to trigger 'playing' (this is not the expected behavior of the video tag). Add a listener (auto-removes after one execution) to retrigger 'playing' from the video tag (correctly emitted in this case).
+                        this.video.addEventListener('playing', this.onPling);
+                    }
+                }
+                break;
+
+            case this.PLAYING:
+                if (bufferLength < this.TOLERANCE) {
+                    this.state = this.BUFFERING;
+                    // DO NOT trigger waiting event if the video is paused. This is not what is expected, and for example in jwplayer it messes up with scrubbing: internal event dragEnd listener tests if JW state is PAUSED before calling play. Triggering WAITING would set it to BUFFERING instead of PAUSED
+                    if (!this.video.paused) {
+                        this.emit(VideoEventPolyfill.Events.WAITING);
+                    }
+                } else if (this.video.paused) {
+                    this.video.addEventListener('playing', this.onPling);
+                }
+                break;
+
+            // tick is not supposed to be triggered if we're in IDLE state
+            case this.IDLE: // jshint ignore:line
+            default:
+                return;
+        }
+    }
+
+    setLive (isLive) {
+        this.isLive = isLive;
+    }
+
+    dispose () {
+        clearInterval(this.tickInterval);
+
+        if (this.video) {
+            this.video.removeEventListener('play', this.onPl);
+            this.video.removeEventListener('playing', this.onPling);
+            delete this.video;
+        }
+
+        this.removeAllListeners();
+    }
+}
+
+export default VideoEventPolyfill;
