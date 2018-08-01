@@ -53,6 +53,10 @@ function ErrorHandler() {
         eventBus.trigger(Events.ERROR, {error: 'manifestError', event: {message: message, id: id, manifest: manifest}});
     }
 
+    function mediaUnsupported(id, url, request) {
+        eventBus.trigger(Events.ERROR, {error: 'mediaUnsupported', event: {id: id, url: url, request: request}});
+    }
+
     function timedTextError(message, id, ccContent) {
         eventBus.trigger(Events.ERROR, {error: 'cc', event: {message: message, id: id, cc: ccContent}});
     }
@@ -73,6 +77,7 @@ function ErrorHandler() {
         capabilityError: capabilityError,
         downloadError: downloadError,
         manifestError: manifestError,
+        mediaUnsupported: mediaUnsupported,
         timedTextError: timedTextError,
         mediaSourceError: mediaSourceError,
         mediaKeySessionError: mediaKeySessionError,

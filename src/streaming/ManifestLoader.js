@@ -194,6 +194,13 @@ function ManifestLoader(config) {
                 request.getAllResponseHeaders(),
                 null);
 
+            if (request.status === 415) {
+                log('Failed loading manifest: ' + url + ' no attempts have been made because media type is unsupported');
+                errHandler.mediaUnsupported('manifest', url, request);
+                eventBus.trigger(Events.INTERNAL_MANIFEST_LOADED, {error: new Error('Failed loading manifest: ' + url + ' no attempts have been made because media type is unsupported')});
+                return;
+            }
+
             if (remainingAttempts > 0) {
                 log('Failed loading manifest: ' + url + ', retry in ' + RETRY_INTERVAL + 'ms' + ' attempts: ' + remainingAttempts);
                 remainingAttempts--;
