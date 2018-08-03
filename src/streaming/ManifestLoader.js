@@ -165,6 +165,15 @@ function ManifestLoader(config) {
                 }
 
                 manifest.loadedTime = loadedTime;
+                if (!manifest.availabilityStartTime) {
+                    manifest.availabilityStartTime = loadedTime;
+
+                    var availabilityStartTime = request.getResponseHeader('Availability-Start-Time');
+                    if (availabilityStartTime) {
+                        manifest.availabilityStartTime = new Date(Date.parse(availabilityStartTime));
+                    }
+                }
+
                 metricsModel.addManifestUpdate('stream', manifest.type, requestTime, loadedTime, manifest.availabilityStartTime);
                 xlinkController.resolveManifestOnLoad(manifest);
             } else {
