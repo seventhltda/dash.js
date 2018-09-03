@@ -575,6 +575,19 @@ function MediaPlayer() {
     }
 
     /**
+     * @returns A URL to a valid MPD manifest file, or a parsed manifest
+     * object.
+     * @memberof module:MediaPlayer
+     * @instance
+     */
+    function getSource() {
+        if (!source) {
+            throw ELEMENT_NOT_ATTACHED_ERROR;
+        }
+        return source;
+    }
+
+    /**
      * @returns {@link VideoModel}
      * @memberof module:MediaPlayer
      * @instance
@@ -1837,6 +1850,7 @@ function MediaPlayer() {
         getVersion: getVersion,
         getDebug: getDebug,
         getBufferLength: getBufferLength,
+        getSource: getSource,
         getVideoModel: getVideoModel,
         getVideoContainer: getVideoContainer,
         setLiveDelayFragmentCount: setLiveDelayFragmentCount,
